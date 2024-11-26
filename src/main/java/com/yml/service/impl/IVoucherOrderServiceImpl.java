@@ -8,9 +8,10 @@ import com.yml.mapper.VoucherOrderMapper;
 import com.yml.service.ISeckillVoucherService;
 import com.yml.service.IVoucherOrderService;
 import com.yml.utils.RedisIdWorker;
+import com.yml.utils.SimpleRedisLock;
 import com.yml.utils.UserHolder;
-import lombok.Synchronized;
 import org.springframework.aop.framework.AopContext;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +26,9 @@ public class IVoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vo
 
     @Resource
     private RedisIdWorker redisIdWorker;
+    
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
 
     @Override
     public Result seckillVoucher(Long voucherId) {
@@ -39,12 +43,26 @@ public class IVoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vo
         if (seckillVoucher.getStock() <= 0) {
             return Result.fail("库存不足!");
         }
+        //方法一：单机情况下的锁
         //先提交事务再解锁：避免锁已经释放事务还未提交时，其它线程访问不是最新的数据
         Long userId = UserHolder.getUser().getId();
         synchronized (userId.toString().intern()) {
             //获取事务方法的代理对象
             IVoucherOrderService proxy = (IVoucherOrderService)AopContext.currentProxy();
+            //return proxy.createVoucherOrder(voucherId);
+        }
+
+        //方法二：分布式情况下的锁
+        SimpleRedisLock orderLock = new SimpleRedisLock("order:" + userId, stringRedisTemplate);
+        boolean isLock = orderLock.tryLock(5);
+        if(!isLock){
+            return Result.fail("不允许重复下单!");
+        }
+        try {
+            IVoucherOrderService proxy = (IVoucherOrderService)AopContext.currentProxy();
             return proxy.createVoucherOrder(voucherId);
+        }finally {
+            orderLock.unlock();
         }
     }
 
