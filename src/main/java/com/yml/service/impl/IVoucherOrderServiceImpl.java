@@ -10,6 +10,8 @@ import com.yml.service.IVoucherOrderService;
 import com.yml.utils.RedisIdWorker;
 import com.yml.utils.SimpleRedisLock;
 import com.yml.utils.UserHolder;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -17,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 import java.time.LocalDateTime;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class IVoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {
@@ -30,8 +33,11 @@ public class IVoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vo
     @Resource
     private StringRedisTemplate stringRedisTemplate;
 
+    @Resource
+    private RedissonClient redissonClient;
+
     @Override
-    public Result seckillVoucher(Long voucherId) {
+    public Result seckillVoucher(Long voucherId)  {
         //判断时间+库存
         SeckillVoucher seckillVoucher = seckillVoucherService.getById(voucherId);
         if (seckillVoucher.getBeginTime().isAfter(LocalDateTime.now())) {
@@ -56,13 +62,32 @@ public class IVoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vo
         SimpleRedisLock orderLock = new SimpleRedisLock("order:" + userId, stringRedisTemplate);
         boolean isLock = orderLock.tryLock(5);
         if(!isLock){
+            //return Result.fail("不允许重复下单!");
+        }
+        try {
+            IVoucherOrderService proxy = (IVoucherOrderService)AopContext.currentProxy();
+            //return proxy.createVoucherOrder(voucherId);
+        }finally {
+            orderLock.unlock();
+        }
+
+        //方法三：使用Redisson工具提供的锁
+        RLock redLock = redissonClient.getLock("order:" + userId);
+        boolean redLockRes = false;
+        try {
+            //三个参数：获取锁的最大等待时间（期间会重试）、锁自动释放时间、时间单位
+            redLockRes = redLock.tryLock(1,10, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+        if(!redLockRes){
             return Result.fail("不允许重复下单!");
         }
         try {
             IVoucherOrderService proxy = (IVoucherOrderService)AopContext.currentProxy();
             return proxy.createVoucherOrder(voucherId);
         }finally {
-            orderLock.unlock();
+            redLock.unlock();
         }
     }
 
