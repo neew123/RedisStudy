@@ -7,6 +7,7 @@
 --- 参数列表:优惠券id、用户id
 local voucherId = ARGV[1]
 local userId = ARGV[2]
+local orderId = ARGV[3]
 --- key:库存key、订单key
 local stockKey = 'seckill:stock:'..voucherId
 local orderKey = 'seckill:order:'..voucherId
@@ -23,4 +24,7 @@ end
 --- 扣库存、记录下单用户
 redis.call('incrby',stockKey,-1)
 redis.call('sadd',orderKey,userId)
+
+--- 发送消息到队列中
+redis.call('xadd','stream.orders','*','userId',userId,'voucherId',voucherId,'id',orderId')
 return 0
