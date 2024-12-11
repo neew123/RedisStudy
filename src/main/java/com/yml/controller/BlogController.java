@@ -10,19 +10,13 @@ import com.yml.service.IBlogService;
 import com.yml.service.IUserService;
 import com.yml.utils.SystemConstants;
 import com.yml.utils.UserHolder;
+import jakarta.websocket.server.PathParam;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
 import java.util.List;
 
-/**
- * <p>
- * 前端控制器
- * </p>
- *
- * @author 虎哥
- * @since 2021-12-22
- */
+
 @RestController
 @RequestMapping("/blog")
 public class BlogController {
@@ -34,13 +28,7 @@ public class BlogController {
 
     @PostMapping
     public Result saveBlog(@RequestBody Blog blog) {
-        // 获取登录用户
-        UserDTO user = UserHolder.getUser();
-        blog.setUserId(user.getId());
-        // 保存探店博文
-        blogService.save(blog);
-        // 返回id
-        return Result.ok(blog.getId());
+        return blogService.saveBlog(blog);
     }
 
     @PutMapping("/like/{id}")
@@ -72,6 +60,19 @@ public class BlogController {
 
     @GetMapping("/{id}")
     public Result queryBlogLikes(@PathVariable("id") Long id){
-        return blogService.queryBlogLikes(id);
+        return blogService.queryBlogLikes (id);
     }
+
+
+    /**
+     *
+     * @param max:上一次查询的最小时间戳
+     * @param offset：偏移量，即集合里面分数值等于最小时间戳的个数
+     * @return List<Blog> 小于最小时间戳的笔记集合、minTime 本次查询推送的最小时间戳、offset 偏移量
+     */
+    @GetMapping("/of/follow")
+    public Result queryBlogOfFollow(@RequestParam("lastId") Long max,@RequestParam(value = "offset",defaultValue = "0")Integer offset){
+        return blogService.queryBlogOfFollow(max,offset);
+    }
+
 }
