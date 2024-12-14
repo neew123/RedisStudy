@@ -12,9 +12,15 @@ import com.yml.mapper.UserMapper;
 import com.yml.service.IUserService;
 import com.yml.utils.RedisConstants;
 import com.yml.utils.RegexUtils;
+import com.yml.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import javax.annotation.Resource;
@@ -26,12 +32,7 @@ import java.util.UUID;
 
 import static com.yml.utils.SystemConstants.USER_NICK_NAME_PREFIX;
 
-/**
- * <p>
- * 服务实现类
- * </p>
- *
- */
+
 @Slf4j
 @Service
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IUserService {
@@ -56,6 +57,51 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         log.debug("发送短信验证码成功，验证码:{}",code);
         //返回ok
         return Result.ok();
+    }
+
+    @Override
+    public Result sign() {
+        Long userId = UserHolder.getUser().getId();
+        LocalDateTime now = LocalDateTime.now();
+        String keySuffix = now.format(DateTimeFormatter.ofPattern("yyyyMM"));
+        String key = "sign:"+userId+":"+keySuffix;
+        //获取今天是本月的第几天
+        int dayOfMonth = now.getDayOfMonth();
+        stringRedisTemplate.opsForValue().setBit(key, dayOfMonth - 1, true);
+
+        return Result.ok();
+    }
+
+    @Override
+    public Result signCount() {
+        //获取本月截止今天为止的所有签到记录
+        Long userId = UserHolder.getUser().getId();
+        LocalDateTime now = LocalDateTime.now();
+        String keySuffix = now.format(DateTimeFormatter.ofPattern("yyyyMM"));
+        String key = "sign:"+userId+":"+keySuffix;
+        int dayOfMonth = now.getDayOfMonth();
+        List<Long> result = stringRedisTemplate.opsForValue().bitField(key,
+                BitFieldSubCommands.create()
+                        .get(BitFieldSubCommands.BitFieldType.unsigned(dayOfMonth)).valueAt(0)
+        );
+        if(result == null || result.isEmpty()){
+            //没有任何签到结果
+            return Result.ok(0);
+        }
+        Long num = result.get(0);
+        if(num == null || num == 0){
+            return Result.ok(0);
+        }
+        int count = 0;
+        while (true){
+            if((num&1) == 0){
+                break;
+            }else {
+                count++;
+            }
+            num >>>= 1;
+        }
+        return Result.ok(count);
     }
 
     @Override
